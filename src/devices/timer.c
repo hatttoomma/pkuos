@@ -7,6 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "threads/malloc.h"
   
 /** See [8254] for hardware details of the 8254 timer chip. */
 
@@ -16,6 +17,14 @@
 #if TIMER_FREQ > 1000
 #error TIMER_FREQ <= 1000 recommended
 #endif
+
+struct sleeping_thread {
+  struct list_elem elem;
+  struct thread *thread_num;
+  int64_t wake_up_time;
+};
+
+static struct list sleep_list;
 
 /** Number of timer ticks since OS booted. */
 static int64_t ticks;
@@ -37,6 +46,7 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  list_init(&sleep_list);
 }
 
 /** Calibrates loops_per_tick, used to implement brief delays. */
@@ -91,9 +101,16 @@ timer_sleep (int64_t ticks)
 {
   int64_t start = timer_ticks ();
 
-  ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  enum intr_level old_level = intr_disable();
+  struct sleeping_thread *st = (struct sleeping_thread *)malloc(sizeof(struct sleeping_thread));
+
+  st->thread_num = thread_current();
+  st->wake_up_time = start + ticks;
+
+  list_push_back(&sleep_list,&st->elem);
+  thread_block();
+
+  intr_set_level(old_level);
 }
 
 /** Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -166,12 +183,29 @@ timer_print_stats (void)
   printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
 
+/**/
+static void 
+sleep_tick(void){
+  struct list_elem *e;
+  for (e = list_begin(&sleep_list); e != list_end(&sleep_list);){
+    struct sleeping_thread *st = list_entry(e, struct sleeping_thread, elem);
+    if (st->wake_up_time <= timer_ticks()){
+      e = list_remove(e);
+      thread_unblock(st->thread_num);
+      if(st->thread_num->priority > thread_current()->priority)
+        intr_yield_on_return();
+    }else 
+    e = list_next(e);
+  }
+}
+
 /** Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+  sleep_tick();
 }
 
 /** Returns true if LOOPS iterations waits for more than one timer
