@@ -39,6 +39,13 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
+static bool
+awake_time_compare(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED){
+  struct sleeping_thread *st1 = list_entry(a, struct sleeping_thread, elem);
+  struct sleeping_thread *st2 = list_entry(b, struct sleeping_thread, elem);
+  return st1->wake_up_time < st2->wake_up_time;
+}
+
 /** Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
@@ -107,7 +114,7 @@ timer_sleep (int64_t ticks)
   st->thread_num = thread_current();
   st->wake_up_time = start + ticks;
 
-  list_push_back(&sleep_list,&st->elem);
+  list_insert_ordered(&sleep_list,&st->elem,awake_time_compare,NULL);
   thread_block();
 
   intr_set_level(old_level);
@@ -195,7 +202,7 @@ sleep_tick(void){
       if(st->thread_num->priority > thread_current()->priority)
         intr_yield_on_return();
     }else 
-    e = list_next(e);
+    break;
   }
 }
 
@@ -206,6 +213,17 @@ timer_interrupt (struct intr_frame *args UNUSED)
   ticks++;
   thread_tick ();
   sleep_tick();
+
+  if(thread_mlfqs){
+    recent_cpu_increment();
+    if(ticks % TIMER_FREQ == 0){
+      recent_cpu_update_all();
+      load_avg_update();
+    }
+    if(ticks % 4 == 0){
+      priority_update_all();
+    }
+  }
 }
 
 /** Returns true if LOOPS iterations waits for more than one timer
