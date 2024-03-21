@@ -614,11 +614,13 @@ allocate_tid (void)
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 
+/* thread_current()->recent_cpu ++ if not idle_thread */
 void recent_cpu_increment(void){
   if(thread_current() != idle_thread)
   thread_current()->recent_cpu = add_fp_int(thread_current()->recent_cpu, 1);
 }
 
+/* calculate recent cpu */
 void recent_cpu_update(struct thread *t, void *aux UNUSED){
   if(t != idle_thread){
     int64_t fpa = mul_fp_int(load_avg, 2);
@@ -630,13 +632,15 @@ void recent_cpu_update(struct thread *t, void *aux UNUSED){
   }
 }
 
+/* update recent cpu for all threads */
 void recent_cpu_update_all(void){
   thread_foreach(recent_cpu_update, NULL);
 }
 
+/* calculate priority */
 void priority_update(struct thread *t, void *aux UNUSED){
   if(t != idle_thread){
-    t->priority = fp_to_int_round(sub_fp_int(-sub_fp_int((div_fp_int(t->recent_cpu, 4)), PRI_MAX), (t->nice * 2)));
+    t->priority = PRI_MAX - fp_to_int(div_fp_int(t->recent_cpu, 4)) - (t->nice * 2);
     if(t->priority < PRI_MIN)
       t->priority = PRI_MIN;
     if(t->priority > PRI_MAX)
@@ -644,15 +648,17 @@ void priority_update(struct thread *t, void *aux UNUSED){
   }
 }
 
+/* update priority for all threads */
 void priority_update_all(void){
   thread_foreach(priority_update, NULL);
-  //list_sort(&ready_list, priority_higher_func, NULL);
 }
 
+/* update load_avg */
 void load_avg_update(void){
   int ready_threads = list_size(&ready_list);
   if(thread_current() != idle_thread)
     ready_threads++;
-  
-  load_avg = add_fp(mul_fp(div_fp_int(int_to_fp(59), 60), load_avg), mul_fp_int(div_fp_int(int_to_fp(1), 60), ready_threads));
+  int fpa = mul_fp(div_fp_int(int_to_fp(59), 60), load_avg);
+  int fpb = mul_fp(int_to_fp(ready_threads), div_fp_int(int_to_fp(1), 60));
+  load_avg = add_fp(fpa, fpb);
 }

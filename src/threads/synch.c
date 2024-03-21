@@ -198,6 +198,7 @@ lock_init (struct lock *lock)
   lock->max_priority = PRI_MIN;
 }
 
+/* compare function for lock priority */
 static bool
 lock_priority_higher_func(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {

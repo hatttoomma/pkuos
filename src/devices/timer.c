@@ -18,11 +18,6 @@
 #error TIMER_FREQ <= 1000 recommended
 #endif
 
-struct sleeping_thread {
-  struct list_elem elem;
-  struct thread *thread_num;
-  int64_t wake_up_time;
-};
 
 static struct list sleep_list;
 
@@ -39,10 +34,11 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
+/* compare functon for awake time */
 static bool
 awake_time_compare(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED){
-  struct sleeping_thread *st1 = list_entry(a, struct sleeping_thread, elem);
-  struct sleeping_thread *st2 = list_entry(b, struct sleeping_thread, elem);
+  struct thread *st1 = list_entry(a, struct thread, sleepelem);
+  struct thread *st2 = list_entry(b, struct thread, sleepelem);
   return st1->wake_up_time < st2->wake_up_time;
 }
 
@@ -109,12 +105,10 @@ timer_sleep (int64_t ticks)
   int64_t start = timer_ticks ();
 
   enum intr_level old_level = intr_disable();
-  struct sleeping_thread *st = (struct sleeping_thread *)malloc(sizeof(struct sleeping_thread));
+  
+  thread_current()->wake_up_time = start + ticks;
 
-  st->thread_num = thread_current();
-  st->wake_up_time = start + ticks;
-
-  list_insert_ordered(&sleep_list,&st->elem,awake_time_compare,NULL);
+  list_insert_ordered(&sleep_list,&thread_current()->sleepelem,awake_time_compare,NULL);
   thread_block();
 
   intr_set_level(old_level);
@@ -190,19 +184,26 @@ timer_print_stats (void)
   printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
 
-/**/
+
+/* Awake sleeping threads in sleeping lists */
 static void 
 sleep_tick(void){
-  struct list_elem *e;
-  for (e = list_begin(&sleep_list); e != list_end(&sleep_list);){
-    struct sleeping_thread *st = list_entry(e, struct sleeping_thread, elem);
-    if (st->wake_up_time <= timer_ticks()){
-      e = list_remove(e);
-      thread_unblock(st->thread_num);
-      if(st->thread_num->priority > thread_current()->priority)
+  
+  struct list_elem *e = list_begin(&sleep_list);
+  struct thread *st;
+  struct list_elem *e_end = list_end(&sleep_list);
+  for (; e != e_end;e = list_remove(e)){
+    st = list_entry(e, struct thread, sleepelem);
+    if (st->wake_up_time <= ticks) 
+    {
+      thread_unblock(st);
+      if(st->priority > thread_current()->priority)
         intr_yield_on_return();
-    }else 
-    break;
+    }
+    else
+    {
+      break;
+    }
   }
 }
 
@@ -211,14 +212,13 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
-  thread_tick ();
   sleep_tick();
-
+  thread_tick ();
   if(thread_mlfqs){
     recent_cpu_increment();
     if(ticks % TIMER_FREQ == 0){
-      recent_cpu_update_all();
       load_avg_update();
+      recent_cpu_update_all();
     }
     if(ticks % 4 == 0){
       priority_update_all();

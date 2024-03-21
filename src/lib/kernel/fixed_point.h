@@ -14,9 +14,9 @@
 #define add_fp_int(x, n)    (x + n * _f_)
 
 #define sub_fp_int(x, n)    (x - n * _f_)
-#define mul_fp(x, y)    ((int)(((int64_t)x) * y / _f_))
+#define mul_fp(x, y)    ((((int64_t)x) * y / _f_))
 #define mul_fp_int(x, n)    (x * n)
-#define div_fp(x, y)    ((int)(((int64_t)x) * _f_ / y))
+#define div_fp(x, y)    ((((int64_t)x) * _f_ / y))
 #define div_fp_int(x, n)    (x / n)
 
 #endif
