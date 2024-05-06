@@ -8,9 +8,12 @@
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
 #include "threads/palloc.h"
+#include "threads/malloc.h"
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "userprog/syscall.h"
+#include "filesys/file.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -183,6 +186,24 @@ thread_create (const char *name, int priority,
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
 
+  /* initialize record */
+  t->record = (struct thread_record*)malloc(sizeof(struct thread_record));
+  t->record->tid = tid;
+  t->record->exit_code = 0;
+  t->record->is_alive = true;
+  t->record->t = t;
+  t->record->waiting = false;
+  sema_init(&t->record->sema, 0);
+
+  /* initialize parent */
+  t->parent = thread_current();
+  list_push_back(&thread_current()->child_list, &t->record->elem);
+
+  /* initialize file */
+  list_init(&t->open_file);
+  t->fd_num = 3;
+  t->fileExecutable = NULL;
+
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
   kf->eip = NULL;
@@ -285,7 +306,16 @@ thread_exit (void)
 #ifdef USERPROG
   process_exit ();
 #endif
-
+  /* close file */
+  struct list_elem* e;
+  while(!list_empty(&thread_current()->open_file)){
+    e = list_pop_front(&thread_current()->open_file);
+    struct file_entry* fe = list_entry(e, struct file_entry, elem);
+    lock_acquire(&file_lock);
+    file_close(fe->fptr);
+    lock_release(&file_lock);
+    free(fe);
+  }
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
@@ -463,6 +493,10 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  t->exec_success = 0;
+  list_init(&t->child_list);
+  lock_init(&t->child_lock);
+  sema_init(&t->exec_sema, 0);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include <threads/synch.h>
 
 /** States in a thread's life cycle. */
 enum thread_status
@@ -93,6 +94,18 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /**< List element. */
 
+    /* modified for lab 2*/
+    int exit_code;                      /**< Exit code of the thread. */ 
+    struct list child_list;             /**< List of child threads. */
+    struct thread* parent;              /**< Parent thread. */
+    struct thread_record* record;       /**< Record of the thread. */
+    struct lock child_lock;             /**< Lock for exec. */
+    struct semaphore exec_sema;         /**< Semaphore for exec. */
+    bool exec_success;                  /**< Exec success. */
+    struct file* fileExecutable;        /**< Executable file. */
+    struct list open_file;              /**< List of open files. */
+    int fd_num;                             /**< File descriptor. */
+    /* end modify*/
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /**< Page directory. */
@@ -101,6 +114,27 @@ struct thread
     /* Owned by thread.c. */
     unsigned magic;                     /**< Detects stack overflow. */
   };
+
+/* Keep a record for every thread who's father process 
+   is still running.This struct is used for wait() */
+struct thread_record{
+   tid_t tid;
+   int exit_code;
+   bool is_alive;
+   struct list_elem elem;
+   struct thread* t;
+   bool waiting;
+   /* sema used for wait */
+   struct semaphore sema;
+};
+
+/* This struct is used in filesys to support functions
+   in file syscall */
+struct file_entry{
+   struct file* fptr;
+   int fd;
+   struct list_elem elem;
+};
 
 /** If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
